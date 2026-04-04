@@ -1,0 +1,15 @@
+# Binários
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# O MAIS IMPORTANTE: Nunca subir senhas e tokens!
+.env
+.env.*
+
+# Pastas do SO e IDE
+.idea/
+.vscode/
+.DS_Store

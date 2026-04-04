@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-bracci-offwhite text-bracci-black font-sans antialiased;
+  }
+}
+
+.btn-gold {
+  @apply bg-bracci-gold text-white px-6 py-2 rounded-sm transition-all hover:bg-bracci-gold-hover active:scale-95 font-semibold;
+}
+
+.card-luxury {
+  @apply bg-white border-thin border-gray-100 shadow-sm rounded-sm hover:shadow-md transition-shadow;
+}
