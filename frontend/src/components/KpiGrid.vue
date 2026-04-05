@@ -1,74 +1,79 @@
 <script setup>
+import { computed } from 'vue';
+
+// Recebe os dados de "stats" lá do ClientDashboard.vue
 const props = defineProps({
   stats: {
     type: Object,
     required: true,
-    default: () => ({})
+    default: () => ({
+      total_revenue: 0,
+      total_spend: 0,
+      total_roas: 0,
+      total_clicks: 0,
+      total_impressions: 0
+    })
   }
 });
 
-// Funções de formatação blindadas para números diretos
-const fCurrency = (val) => {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
+// Funções para formatar dinheiro e números grandes
+const formatCurrency = (value) => {
+  return new Intl.NumberFormat('pt-BR', { 
+    style: 'currency', 
+    currency: 'BRL' 
+  }).format(value || 0);
 };
 
-const fNumber = (val) => {
-  return new Intl.NumberFormat('pt-BR').format(val || 0);
-};
-
-const fPercent = (val) => {
-  return ((val || 0) * 100).toFixed(2) + '%';
+const formatNumber = (value) => {
+  return new Intl.NumberFormat('pt-BR').format(value || 0);
 };
 </script>
 
 <template>
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
     
-    <div class="luxury-card group">
-      <p class="card-label">Faturamento Total</p>
-      <div class="flex justify-between items-end mt-4">
-        <h3 class="card-value">{{ fCurrency(stats.total_revenue) }}</h3>
-        <div class="card-line"></div>
-      </div>
+    <div class="bg-white p-8 border border-gray-100 shadow-xl rounded-sm relative overflow-hidden group hover:border-green-400 transition-colors duration-300">
+      <div class="absolute top-0 right-0 w-16 h-16 bg-green-50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-125"></div>
+      <h3 class="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-2 relative z-10">
+        Captado Real
+      </h3>
+      <p class="text-3xl font-black text-black relative z-10">
+        {{ formatCurrency(stats.total_revenue) }}
+      </p>
     </div>
 
-    <div class="luxury-card group">
-      <p class="card-label">Investimento (Spend)</p>
-      <div class="flex justify-between items-end mt-4">
-        <h3 class="card-value">{{ fCurrency(stats.total_spend) }}</h3>
-        <div class="card-line"></div>
-      </div>
+    <div class="bg-white p-8 border border-gray-100 shadow-xl rounded-sm relative overflow-hidden group hover:border-red-400 transition-colors duration-300">
+      <div class="absolute top-0 right-0 w-16 h-16 bg-red-50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-125"></div>
+      <h3 class="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-2 relative z-10">
+        Investimento
+      </h3>
+      <p class="text-3xl font-black text-black relative z-10">
+        {{ formatCurrency(stats.total_spend) }}
+      </p>
     </div>
 
-    <div class="luxury-card group bg-black border-b-2 border-b-bracci-gold">
-      <p class="card-label text-gray-500">ROAS Médio</p>
-      <div class="flex justify-between items-end mt-4">
-        <h3 class="card-value text-bracci-gold italic">{{ stats.total_roas?.toFixed(2) || '0.00' }}x</h3>
-      </div>
+    <div class="bg-white p-8 border border-bracci-gold/30 shadow-xl rounded-sm relative overflow-hidden group hover:border-bracci-gold transition-colors duration-300">
+      <div class="absolute top-0 right-0 w-16 h-16 bg-bracci-gold/10 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-125"></div>
+      <h3 class="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-2 relative z-10">
+        ROAS Global
+      </h3>
+      <p class="text-3xl font-black text-bracci-gold relative z-10">
+        {{ (stats.total_roas || 0).toFixed(2) }}x
+      </p>
     </div>
 
-    <div class="luxury-card group">
-      <p class="card-label">Cliques</p>
-      <div class="flex justify-between items-end mt-4">
-        <h3 class="card-value">{{ fNumber(stats.total_clicks) }}</h3>
-        <div class="card-line"></div>
-      </div>
-    </div>
-
-    <div class="luxury-card group">
-      <p class="card-label">Impressões</p>
-      <div class="flex justify-between items-end mt-4">
-        <h3 class="card-value">{{ fNumber(stats.total_impressions) }}</h3>
-        <div class="card-line"></div>
-      </div>
+    <div class="bg-white p-8 border border-gray-100 shadow-xl rounded-sm relative overflow-hidden group hover:border-blue-400 transition-colors duration-300">
+      <div class="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-125"></div>
+      <h3 class="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-2 relative z-10">
+        Tráfego (Cliques)
+      </h3>
+      <p class="text-3xl font-black text-black relative z-10">
+        {{ formatNumber(stats.total_clicks) }}
+      </p>
+      <p class="text-[9px] text-gray-400 mt-1 uppercase tracking-widest font-bold">
+        Imps: {{ formatNumber(stats.total_impressions) }}
+      </p>
     </div>
 
   </div>
 </template>
-
-<style scoped>
-.luxury-card { @apply bg-white p-8 border border-gray-100 shadow-sm relative transition-all duration-500 hover:shadow-2xl hover:-translate-y-1; }
-.card-label { @apply text-[9px] font-black text-gray-400 uppercase tracking-[0.3em] italic; }
-.card-value { @apply text-3xl font-black text-black tracking-tighter leading-none; }
-.card-line { @apply absolute bottom-0 left-0 h-[1px] w-0 bg-bracci-gold transition-all duration-700 group-hover:w-full; }
-</style>

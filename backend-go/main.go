@@ -1,58 +1,83 @@
 package main
 
 import (
-    "fmt"
-    "log"
+	"fmt"
+	"log"
 
-    "backend-go/database"
-    "backend-go/handlers"
-    "backend-go/models" // 👈 PRECISA IMPORTAR OS MODELS AQUI
+	"backend-go/database"
+	"backend-go/handlers"
+	"backend-go/middleware"
+	"backend-go/models"
+	"backend-go/services"
 
-    "github.com/gofiber/fiber/v2"
-    "github.com/gofiber/fiber/v2/middleware/cors"
-    "github.com/joho/godotenv"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-    err := godotenv.Load()
-    if err != nil {
-        log.Println("Aviso: Arquivo .env não encontrado. Usando variáveis do sistema.")
-    }
+	// 1. Carrega as chaves do .env
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("Aviso: Arquivo .env não encontrado. Usando variáveis do sistema.")
+	}
 
-    // Conecta no banco
-    database.ConnectDB()
+	// 2. Conexão e Migração do Banco de Dados
+	database.ConnectDB()
+	fmt.Println("⚙️ Sincronizando models com o Postgres...")
+	err = database.DB.AutoMigrate(&models.CampaignInsight{})
+	if err != nil {
+		log.Fatal("❌ Erro na migração: ", err)
+	}
 
-    // ✨ A MÁGICA ACONTECE AQUI ✨
-    // O AutoMigrate vai olhar o model e CRIAR a coluna "spend", "revenue", etc no Postgres se elas não existirem!
-    fmt.Println("⚙️ Sincronizando o banco de dados...")
-    err = database.DB.AutoMigrate(&models.CampaignInsight{})
-    if err != nil {
-        log.Fatal("❌ Erro ao sincronizar o banco: ", err)
-    }
-    fmt.Println("✅ Banco de dados sincronizado com sucesso!")
+	// 3. Inicia o Cron do Relógio Suíço (Sync Diário às 03:00 AM)
+	services.InitScheduler()
 
-    // 🕵️‍♂️ MÁQUINA DE RAIO-X: BORA VER AS TABELAS REAIS!
-    var tables []string
-    database.DB.Raw("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'").Scan(&tables)
-    fmt.Println("========================================")
-    fmt.Println("🗄️ TABELAS ENCONTRADAS NO BANCO:")
-    for _, table := range tables {
-        fmt.Println(" ➡️", table)
-    }
-    fmt.Println("========================================")
-
+	// 4. Configuração do Servidor Fiber
 	app := fiber.New()
-	// Libera o CORS pro Vue conseguir acessar
+
+	// Liberação de CORS (Essencial para o Vue.js acessar o Go)
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: "*",
 		AllowHeaders: "Origin, Content-Type, Accept",
 	}))
 
-	// ROTAS DA API v1
+	// ============================================================
+	// 🌍 GRUPO 1: ROTAS PÚBLICAS (Dashboard e Analytics)
+	// Estas rotas o pessoal da agência pode ver normalmente.
+	// ============================================================
 	api := app.Group("/api/v1")
-	api.Get("/dashboard/summary", handlers.GetDashboardSummary)
-	api.Get("/dashboard/comparative", handlers.GetComparativeAnalysis)
-	api.Post("/sync/meta", handlers.TriggerMetaSync)
+
+	// Dashboard de KPIs e Relatórios
+	api.Get("/analytics/dashboard", handlers.GetMarketingPerformance)
+	api.Get("/analytics/comparative", handlers.GetComparativeAnalysis)
+	
+	// Triggers Manuais de Sincronização (Botão de Refresh)
+	api.Post("/sync/meta/daily", handlers.TriggerMetaDailySync)
+	api.Post("/sync/meta/history", handlers.TriggerMetaHistorySync)
+	api.Post("/sync/google/daily", handlers.TriggerGoogleDailySync)
+	api.Post("/sync/google/history", handlers.TriggerGoogleHistorySync)
+
+	// ============================================================
+	// 🔒 GRUPO 2: PROTOCOLO NEURO-SÓCIO (BLINDADO POR IP)
+	// Apenas você (Localhost ou IP do .env) consegue enxergar aqui.
+	// ============================================================
+	neuro := api.Group("/neuro-socio", middleware.NeuroGuard())
+
+	// Validação de Acesso (Usado pelo Frontend para esconder o botão)
+	neuro.Get("/status", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"can_access": true,
+			"message":    "Identidade confirmada. Bem-vindo, Mestre.",
+		})
+	})
+
+	// Motor de Análise IA (Onde o Python vai rodar)
+	neuro.Get("/analyze", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{"message": "Cérebro IA pronto para análise estatística."})
+	})
+
+	// ============================================================
 
 	log.Println("🚀 Motor Go Rodando na Porta 8000!")
 	log.Fatal(app.Listen(":8000"))

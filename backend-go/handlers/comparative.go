@@ -2,112 +2,100 @@ package handlers
 
 import (
 	"backend-go/database"
-	"backend-go/models"
 	"math"
+	"fmt"
 	"time"
-
 	"github.com/gofiber/fiber/v2"
 )
 
 func GetComparativeAnalysis(c *fiber.Ctx) error {
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
-	platform := c.Query("platform") // Pode ser "meta", "google" ou vazio (omnichannel)
+	layout := "2006-01-02"
 
 	if startDateStr == "" || endDateStr == "" {
-		return c.Status(400).JSON(fiber.Map{"error": "start_date e end_date são obrigatórios"})
+		return c.Status(400).JSON(fiber.Map{"error": "Datas obrigatórias"})
 	}
 
-	// 1. MÁQUINA DO TEMPO: Calcula exatamente o período anterior
-	layout := "2006-01-02" // Formato padrão de data do Go
-	startDate, err1 := time.Parse(layout, startDateStr)
-	endDate, err2 := time.Parse(layout, endDateStr)
-	
-	if err1 != nil || err2 != nil {
-		return c.Status(400).JSON(fiber.Map{"error": "Formato de data inválido. Use YYYY-MM-DD"})
-	}
+	startDate, _ := time.Parse(layout, startDateStr)
+	endDate, _ := time.Parse(layout, endDateStr)
+	daysDiff := int(endDate.Sub(startDate).Hours()/24) + 1
 
-	// Descobre quantos dias tem o período atual
-	daysDiff := int(endDate.Sub(startDate).Hours() / 24)
-	
-	// Volta no tempo para pegar a mesma quantidade de dias pra trás
 	prevEndDate := startDate.AddDate(0, 0, -1)
-	prevStartDate := prevEndDate.AddDate(0, 0, -daysDiff)
+	prevStartDate := prevEndDate.AddDate(0, 0, -(daysDiff - 1))
 
-	// 2. FUNÇÃO ATIRADORA DE ELITE: Busca os dados filtrados
-	type Metrics struct {
+	// Estruturas de suporte
+	type MetricRow struct {
 		Spend   float64
 		Revenue float64
 		Clicks  int
-		Roas    float64
 	}
 
-	getMetrics := func(start, end time.Time, plat string) Metrics {
-		var m struct {
-			Spend   float64
-			Revenue float64
-			Clicks  int
+	fetchData := func(start, end time.Time) (MetricRow, MetricRow, []float64) {
+		var meta, google MetricRow
+		database.DB.Table("fb_campaign_insights").Select("COALESCE(SUM(spend), 0), COALESCE(SUM(revenue), 0), COALESCE(SUM(clicks), 0)").
+			Where("data BETWEEN ? AND ?", start.Format(layout), end.Format(layout)).Row().Scan(&meta.Spend, &meta.Revenue, &meta.Clicks)
+		
+		database.DB.Table("google_campaign_insights").Select("COALESCE(SUM(spend), 0), COALESCE(SUM(revenue), 0), COALESCE(SUM(clicks), 0)").
+			Where("data BETWEEN ? AND ?", start.Format(layout), end.Format(layout)).Row().Scan(&google.Spend, &google.Revenue, &google.Clicks)
+
+		// Busca série diária para o gráfico (soma das duas plataformas)
+		var series []float64
+		for i := 0; i < daysDiff; i++ {
+			day := start.AddDate(0, 0, i).Format(layout)
+			var dailyRev float64
+			database.DB.Raw("SELECT (SELECT COALESCE(SUM(revenue), 0) FROM fb_campaign_insights WHERE data = ?) + (SELECT COALESCE(SUM(revenue), 0) FROM google_campaign_insights WHERE data = ?)", day, day).Scan(&dailyRev)
+			series = append(series, dailyRev)
 		}
 
-		// A query base (usando a nossa tabela certa)
-		query := database.DB.Model(&models.CampaignInsight{}).
-			Select("COALESCE(SUM(spend), 0) as spend, COALESCE(SUM(revenue), 0) as revenue, COALESCE(SUM(clicks), 0) as clicks").
-			Where("DATE(data) BETWEEN ? AND ?", start.Format(layout), end.Format(layout))
-
-		// Se o front mandar a plataforma, a gente filtra!
-		if plat == "meta" || plat == "facebook" {
-			query = query.Where("LOWER(platform) LIKE ?", "%meta%")
-		} else if plat == "google" {
-			query = query.Where("LOWER(platform) LIKE ?", "%google%")
-		}
-
-		query.Scan(&m)
-
-		roas := 0.0
-		if m.Spend > 0 {
-			roas = math.Round((m.Revenue/m.Spend)*100) / 100
-		}
-
-		return Metrics{
-			Spend:   math.Round(m.Spend*100) / 100,
-			Revenue: math.Round(m.Revenue*100) / 100,
-			Clicks:  m.Clicks,
-			Roas:    roas,
-		}
+		return meta, google, series
 	}
 
-	// 3. BUSCA OS DOIS PERÍODOS
-	currentMetrics := getMetrics(startDate, endDate, platform)
-	prevMetrics := getMetrics(prevStartDate, prevEndDate, platform)
+	// 1. Busca os dados dos dois períodos
+	currMeta, currGoogle, currSeries := fetchData(startDate, endDate)
+	prevMeta, prevGoogle, prevSeries := fetchData(prevStartDate, prevEndDate)
 
-	// 4. CALCULADORA DE DELTA (%)
-	calcDelta := func(current, prev float64) float64 {
-		if prev == 0 {
-			if current > 0 {
-				return 100.0 // Crescimento infinito se antes era 0 e agora tem algo
-			}
-			return 0.0
-		}
-		delta := ((current - prev) / prev) * 100
-		return math.Round(delta*100) / 100
+	// Totais Consolidados
+	currTotal := MetricRow{Spend: currMeta.Spend + currGoogle.Spend, Revenue: currMeta.Revenue + currGoogle.Revenue, Clicks: currMeta.Clicks + currGoogle.Clicks}
+	prevTotal := MetricRow{Spend: prevMeta.Spend + prevGoogle.Spend, Revenue: prevMeta.Revenue + prevGoogle.Revenue, Clicks: prevMeta.Clicks + prevGoogle.Clicks}
+
+	calcDelta := func(c, p float64) float64 {
+		if p == 0 { return 100.0 }
+		return math.Round(((c-p)/p)*10000) / 100
 	}
 
-	// 5. RESPOSTA FINAL (Pronta pro seu Vue.js engolir)
+	// 2. Breakdown de Plataformas (Share)
+	metaShare := 0.0
+	googleShare := 0.0
+	if currTotal.Revenue > 0 {
+		metaShare = math.Round((currMeta.Revenue / currTotal.Revenue) * 1000) / 10
+		googleShare = 100 - metaShare
+	}
+
 	return c.JSON(fiber.Map{
-		"period_current": fiber.Map{
-			"start": startDate.Format(layout),
-			"end":   endDate.Format(layout),
-		},
-		"period_previous": fiber.Map{
-			"start": prevStartDate.Format(layout),
-			"end":   prevEndDate.Format(layout),
-		},
-		"filter_applied": platform,
+		"status": "sucesso",
+		"period_current":  fiber.Map{"start": startDateStr, "end": endDateStr},
+		"period_previous": fiber.Map{"start": prevStartDate.Format(layout), "end": prevEndDate.Format(layout)},
 		"stats": fiber.Map{
-			"Faturamento":  fiber.Map{"current": currentMetrics.Revenue, "prev": prevMetrics.Revenue, "delta": calcDelta(currentMetrics.Revenue, prevMetrics.Revenue)},
-			"Investimento": fiber.Map{"current": currentMetrics.Spend, "prev": prevMetrics.Spend, "delta": calcDelta(currentMetrics.Spend, prevMetrics.Spend)},
-			"ROAS":         fiber.Map{"current": currentMetrics.Roas, "prev": prevMetrics.Roas, "delta": calcDelta(currentMetrics.Roas, prevMetrics.Roas)},
-			"Cliques":      fiber.Map{"current": float64(currentMetrics.Clicks), "prev": float64(prevMetrics.Clicks), "delta": calcDelta(float64(currentMetrics.Clicks), float64(prevMetrics.Clicks))},
+			"Faturamento":  fiber.Map{"current": currTotal.Revenue, "prev": prevTotal.Revenue, "delta": calcDelta(currTotal.Revenue, prevTotal.Revenue)},
+			"Investimento": fiber.Map{"current": currTotal.Spend, "prev": prevTotal.Spend, "delta": calcDelta(currTotal.Spend, prevTotal.Spend)},
+			"ROAS":         fiber.Map{"current": currTotal.Revenue/math.Max(1, currTotal.Spend), "prev": prevTotal.Revenue/math.Max(1, prevTotal.Spend), "delta": calcDelta(currTotal.Revenue/math.Max(1, currTotal.Spend), prevTotal.Revenue/math.Max(1, prevTotal.Spend))},
+			"Cliques":      fiber.Map{"current": currTotal.Clicks, "prev": prevTotal.Clicks, "delta": calcDelta(float64(currTotal.Clicks), float64(prevTotal.Clicks))},
+		},
+		"platforms": []fiber.Map{
+			{"name": "Meta Ads", "fat": currMeta.Revenue, "share": metaShare, "roas": currMeta.Revenue/math.Max(1, currMeta.Spend)},
+			{"name": "Google Ads", "fat": currGoogle.Revenue, "share": googleShare, "roas": currGoogle.Revenue/math.Max(1, currGoogle.Spend)},
+		},
+		"chart_data": fiber.Map{
+			"categories": generateLabels(daysDiff),
+			"current":    currSeries,
+			"previous":   prevSeries,
 		},
 	})
+}
+
+func generateLabels(n int) []string {
+	labels := make([]string, n)
+	for i := 0; i < n; i++ { labels[i] = fmt.Sprintf("Dia %d", i+1) }
+	return labels
 }

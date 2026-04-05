@@ -76,11 +76,15 @@ const styledData = computed(() => {
 </script>
 
 <template>
-  <div class="relative w-full h-full p-4">
-    <Line 
-      v-if="styledData?.labels?.length > 0" 
+  <div class="relative w-full h-[400px] p-4"> <Line 
+      v-if="styledData && styledData.labels && styledData.labels.length > 0" 
       :data="styledData" 
       :options="options" 
     />
+    <div v-else class="flex items-center justify-center h-full">
+       <p class="text-gray-500 font-mono text-[10px] animate-pulse uppercase tracking-widest">
+         Loading Intelligence Stream...
+       </p>
+    </div>
   </div>
 </template>

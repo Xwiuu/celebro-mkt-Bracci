@@ -7,24 +7,52 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"backend-go/database"
 	"backend-go/models"
 )
 
-// Struct temporária só para mastigar o formato estranho que o Facebook devolve
-type MetaGraphResponse struct {
-	Data []struct {
-		CampaignID  string `json:"campaign_id"`
-		DateStart   string `json:"date_start"`
-		Spend       string `json:"spend"`       // O FB manda os números como string!
-		Clicks      string `json:"clicks"`
-		Impressions string `json:"impressions"`
-	} `json:"data"`
+type MetaAction struct {
+	ActionType string `json:"action_type"`
+	Value      string `json:"value"`
 }
 
-func SyncMetaCampaigns() error {
-	// 1. Pega os tokens do seu arquivo .env
+type MetaGraphResponse struct {
+	Data []struct {
+		CampaignID   string       `json:"campaign_id"`
+		CampaignName string       `json:"campaign_name"`
+		DateStart    string       `json:"date_start"`
+		Spend        string       `json:"spend"`
+		Clicks       string       `json:"clicks"`
+		Impressions  string       `json:"impressions"`
+		ActionValues []MetaAction `json:"action_values"`
+	} `json:"data"`
+	Paging struct {
+		Next string `json:"next"`
+	} `json:"paging"`
+}
+
+func SyncMetaDaily() error {
+	return fetchAndSaveMeta("last_7d", "")
+}
+
+func SyncMetaHistory() error {
+	// 🎯 O TIRO DE SNIPER: O Go calcula exatamente 37 meses para trás automaticamente!
+	hoje := time.Now()
+	
+	// Subtrai 37 meses do dia de hoje (e soma 1 dia de margem de segurança pro fuso horário)
+	dataLimite := hoje.AddDate(0, -37, 1).Format("2006-01-02")
+	dataHoje := hoje.Format("2006-01-02")
+
+	fmt.Printf("⏳ Iniciando busca máxima permitida: de %s até %s\n", dataLimite, dataHoje)
+
+	// JSON codificado para URL: {"since":"DATA_LIMITE","until":"HOJE"}
+	timeRange := fmt.Sprintf("%%7B%%22since%%22:%%22%s%%22,%%22until%%22:%%22%s%%22%%7D", dataLimite, dataHoje)
+	
+	return fetchAndSaveMeta("", timeRange)
+}
+func fetchAndSaveMeta(timePreset string, timeRange string) error {
 	accessToken := os.Getenv("META_ACCESS_TOKEN")
 	adAccountID := os.Getenv("META_AD_ACCOUNT_ID")
 
@@ -32,48 +60,75 @@ func SyncMetaCampaigns() error {
 		return fmt.Errorf("credenciais da Meta não encontradas no .env")
 	}
 
-	// 2. Monta a URL da Graph API (buscando gastos, cliques e impressões dos últimos 7 dias)
-	url := fmt.Sprintf("https://graph.facebook.com/v19.0/act_%s/insights?fields=campaign_id,spend,clicks,impressions&time_preset=last_7d&access_token=%s", adAccountID, accessToken)
-
-	// 3. Faz o disparo (GET)
-	resp, err := http.Get(url)
-	if err != nil {
-		return fmt.Errorf("erro ao bater na API do Facebook: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-
-	// 4. Converte o JSON do Facebook pra nossa struct temporária
-	var fbData MetaGraphResponse
-	if err := json.Unmarshal(body, &fbData); err != nil {
-		return fmt.Errorf("erro ao decodificar JSON do Facebook: %v", err)
+	var timeFilter string
+	if timeRange != "" {
+		timeFilter = "&time_range=" + timeRange
+	} else {
+		timeFilter = "&time_preset=" + timePreset
 	}
 
-	// 5. Salva no nosso "Arquivo de Aço" (Postgres)
-	for _, item := range fbData.Data {
-		// Convertendo as strings do FB para os números do nosso Go
-		spend, _ := strconv.ParseFloat(item.Spend, 64)
-		clicks, _ := strconv.Atoi(item.Clicks)
-		impressions, _ := strconv.Atoi(item.Impressions)
+	// Montando a URL blindada
+	url := fmt.Sprintf("https://graph.facebook.com/v19.0/act_%s/insights?fields=campaign_id,campaign_name,spend,clicks,impressions,action_values%s&time_increment=1&level=campaign&access_token=%s", adAccountID, timeFilter, accessToken)
 
-		insight := models.CampaignInsight{
-			CampaignID:  item.CampaignID,
-			Data:        item.DateStart, 
-			Spend:       spend,
-			Revenue:     0, // Faturamento no FB (Purchases) exige um field a mais, zerei pra simplificar agora
-			Clicks:      clicks,
-			Impressions: impressions,
-			Platform:    "meta",
+	pageCount := 1
+
+	for url != "" {
+		resp, err := http.Get(url)
+		if err != nil {
+			return fmt.Errorf("erro ao bater na API: %v", err)
 		}
 
-		// O comando 'Save' atualiza se já existir, ou cria se for novo
-		result := database.DB.Create(&insight)
-		if result.Error != nil {
-			fmt.Printf("⚠️ Erro ao salvar campanha %s: %v\n", insight.CampaignID, result.Error)
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			return fmt.Errorf("a Meta recusou a conexão! Status: %d - Motivo: %s", resp.StatusCode, string(body))
 		}
+
+		var fbData MetaGraphResponse
+		if err := json.Unmarshal(body, &fbData); err != nil {
+			return fmt.Errorf("erro no JSON: %v", err)
+		}
+
+		if len(fbData.Data) == 0 {
+			break
+		}
+
+		for _, item := range fbData.Data {
+			spend, _ := strconv.ParseFloat(item.Spend, 64)
+			clicks, _ := strconv.Atoi(item.Clicks)
+			impressions, _ := strconv.Atoi(item.Impressions)
+
+			var revenue float64 = 0
+			for _, action := range item.ActionValues {
+				if action.ActionType == "purchase" || action.ActionType == "offsite_conversion.fb_pixel_purchase" {
+					val, _ := strconv.ParseFloat(action.Value, 64)
+					revenue += val
+				}
+			}
+
+			insight := models.CampaignInsight{
+				CampaignID:   item.CampaignID,
+				CampaignName: item.CampaignName,
+				Data:         item.DateStart,
+				Spend:        spend,
+				Revenue:      revenue,
+				Clicks:       clicks,
+				Impressions:  impressions,
+				Platform:     "meta",
+				DataRegistro: time.Now(),
+			}
+
+			database.DB.Where(models.CampaignInsight{CampaignID: insight.CampaignID, Data: insight.Data}).
+				Assign(insight).
+				FirstOrCreate(&models.CampaignInsight{})
+		}
+
+		fmt.Printf("✅ Página %d salva (com datas rígidas)...\n", pageCount)
+		pageCount++
+		url = fbData.Paging.Next 
 	}
 
-	fmt.Println("✅ Sincronização com Meta concluída com sucesso!")
+	fmt.Printf("🏆 Histórico ABSOLUTO sincronizado com sucesso!\n")
 	return nil
 }

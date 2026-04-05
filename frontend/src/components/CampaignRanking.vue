@@ -17,7 +17,8 @@ const props = defineProps({
   stats: {
     type: Object,
     required: true,
-    default: () => ({ ranking: [] })
+    // Garante que se o backend demorar, o app não quebra
+    default: () => ({ ranking: [] }) 
   }
 });
 

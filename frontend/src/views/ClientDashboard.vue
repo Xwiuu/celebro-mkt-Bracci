@@ -10,32 +10,28 @@ const loadingSync = ref(false);
 const analyticsData = ref(null);
 const chartKey = ref(0);
 
-// Datas padrão: Começando do início do ano até hoje
-const startDate = ref("2026-01-01");
-const endDate = ref(new Date().toISOString().split("T")[0]);
+// Datas padrão: Mês de Março de 2026
+const startDate = ref("2026-03-01");
+const endDate = ref("2026-03-31");
 
 const fetchData = async () => {
   if (loading.value) return;
 
   loading.value = true;
-  
-  // 🔥 PASSO CRÍTICO: "Limpa" a tela. 
-  // Isso força o v-if lá no HTML a esconder os números velhos.
-  analyticsData.value = null; 
+  analyticsData.value = null; // Limpa a tela para o loading skeleton aparecer
 
   try {
-    const response = await api.get("/dashboard/summary", {
-      params: { 
-        start_date: startDate.value, 
-        end_date: endDate.value 
+    const response = await api.get("/analytics/dashboard", {
+      params: {
+        start_date: startDate.value,
+        end_date: endDate.value,
       },
     });
 
-    // Se o backend retornou sucesso, injeta o dado novo
-    if (response.data) {
+    if (response.data && response.data.status === "sucesso") {
       analyticsData.value = response.data;
-      chartKey.value++; // Faz o gráfico piscar e atualizar
-      console.log("✅ Números Atualizados:", response.data.kpis);
+      chartKey.value++;
+      console.log("✅ Números Atualizados:", response.data.consolidado);
     }
   } catch (error) {
     console.error("❌ Erro no fetch:", error);
@@ -47,10 +43,10 @@ const fetchData = async () => {
 const forceSync = async () => {
   loadingSync.value = true;
   try {
-    // Rota de sync que agora limpa o Redis automaticamente
-    await api.post("/sync/platforms");
+    await api.post("/sync/meta/history");
+    await api.post("/sync/google/history");
     await fetchData();
-    alert("✅ Dados sincronizados e Cache atualizado!");
+    alert("✅ Tratores rodaram! Banco de dados 100% atualizado!");
   } catch (e) {
     console.error("❌ Erro no sync manual", e);
     alert("❌ Falha na comunicação com as APIs");
@@ -59,14 +55,15 @@ const forceSync = async () => {
   }
 };
 
+// 🎯 Mapeamento Inteligente pegando do "consolidado" do Go
 const dynamicStats = computed(() => {
-  const k = analyticsData.value?.kpis || {};
+  const k = analyticsData.value?.consolidado || {};
   return {
-    total_revenue: k.revenue || 0,
-    total_spend: k.spend || 0,
+    total_revenue: k.total_revenue || 0,
+    total_spend: k.total_spend || 0,
     total_roas: k.roas || 0,
-    total_clicks: k.clicks || 0,
-    total_impressions: k.impressions || 0,
+    total_clicks: k.total_clicks || 0,
+    total_impressions: k.total_impressions || 0,
   };
 });
 
@@ -119,7 +116,7 @@ onMounted(fetchData);
         <p
           class="text-[9px] font-black uppercase tracking-[0.4em] text-bracci-gold"
         >
-          Omnichannel Intelligence Protocol — v3.0 Powered by Redis
+          Omnichannel Intelligence Protocol — v3.0 Powered by Golang
         </p>
       </div>
       <div class="text-[8px] font-mono text-gray-300 uppercase tracking-widest">
@@ -178,7 +175,7 @@ onMounted(fetchData);
       </div>
     </header>
 
-    <KpiGrid v-if="analyticsData" :stats="dynamicStats" />
+    <KpiGrid v-if="analyticsData" :stats="dynamicStats" :kpis="dynamicStats" />
 
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-12">
       <div
@@ -257,10 +254,7 @@ onMounted(fetchData);
           </div>
         </div>
 
-        <CampaignRanking
-          v-if="analyticsData && analyticsData.ranking?.length > 0"
-          :stats="analyticsData"
-        />
+        <CampaignRanking v-if="analyticsData" :stats="analyticsData" />
       </div>
     </div>
   </div>
