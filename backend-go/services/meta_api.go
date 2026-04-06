@@ -44,9 +44,9 @@ func SyncMetaHistory() error {
 
 	// 2. Cria o JSON do time_range usando crases (backticks) 
 	// Isso evita erros de aspas e garante que o JSON chegue perfeito na Meta
-	timeRangeJSON := fmt.Sprintf(`{"since":"2024-01-01","until":"%s"}`, hoje)
+	timeRangeJSON := fmt.Sprintf(`{"since":"2025-02-06","until":"%s"}`, hoje)
 
-	fmt.Printf("⏳ Iniciando busca histórica: de 2024-01-01 até %s\n", hoje)
+	fmt.Printf("⏳ Iniciando busca histórica: de 2025-02-06 até %s\n", hoje)
 	
 	return fetchAndSaveMeta("", timeRangeJSON)
 }
