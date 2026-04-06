@@ -130,6 +130,14 @@ func fetchAndSaveMeta(timePreset string, timeRange string) error {
 
 		fmt.Printf("✅ Página %d salva (com datas rígidas)...\n", pageCount)
 		pageCount++
+
+		// 🟢 ADICIONE O TIME.SLEEP AQUI
+		// Verificamos se existe uma próxima página antes de esperar
+		if fbData.Paging.Next != "" {
+			fmt.Println("⏳ Aguardando 5 segundos para respeitar os limites da API...")
+			time.Sleep(5 * time.Second)
+		}
+
 		url = fbData.Paging.Next 
 	}
 
