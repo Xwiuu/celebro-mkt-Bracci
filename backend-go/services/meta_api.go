@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -38,17 +39,13 @@ func SyncMetaDaily() error {
 }
 
 func SyncMetaHistory() error {
-	// 🎯 O TIRO DE SNIPER: O Go calcula exatamente 37 meses para trás automaticamente!
-	hoje := time.Now()
-	
-	// Subtrai 37 meses do dia de hoje (e soma 1 dia de margem de segurança pro fuso horário)
-	dataLimite := hoje.AddDate(0, -37, 1).Format("2006-01-02")
-	dataHoje := hoje.Format("2006-01-02")
+	// 1. Pega a data de hoje dinamicamente
+	hoje := time.Now().Format("2006-01-02")
 
-	fmt.Printf("⏳ Iniciando busca máxima permitida: de %s até %s\n", dataLimite, dataHoje)
+	// 2. Configura o período: De 01/01/2024 até Hoje
+	timeRange := fmt.Sprintf("%%7B%%22since%%22:%%222024-01-01%%22,%%22until%%22:%%22%s%%22%%7D", hoje)
 
-	// JSON codificado para URL: {"since":"DATA_LIMITE","until":"HOJE"}
-	timeRange := fmt.Sprintf("%%7B%%22since%%22:%%22%s%%22,%%22until%%22:%%22%s%%22%%7D", dataLimite, dataHoje)
+	fmt.Printf("⏳ Iniciando busca histórica: de 2024-01-01 até %s\n", hoje)
 	
 	return fetchAndSaveMeta("", timeRange)
 }
@@ -60,15 +57,21 @@ func fetchAndSaveMeta(timePreset string, timeRange string) error {
 		return fmt.Errorf("credenciais da Meta não encontradas no .env")
 	}
 
-	var timeFilter string
+	// Montando os parâmetros da requisição
+	params := url.Values{}
+	params.Add("fields", "campaign_id,campaign_name,spend,clicks,impressions,action_values")
+	params.Add("time_increment", "1")
+	params.Add("level", "campaign")
+	params.Add("access_token", accessToken)
+
 	if timeRange != "" {
-		timeFilter = "&time_range=" + timeRange
+		params.Add("time_range", timeRange)
 	} else {
-		timeFilter = "&time_preset=" + timePreset
+		params.Add("time_preset", timePreset)
 	}
 
 	// Montando a URL blindada
-	url := fmt.Sprintf("https://graph.facebook.com/v19.0/act_%s/insights?fields=campaign_id,campaign_name,spend,clicks,impressions,action_values%s&time_increment=1&level=campaign&access_token=%s", adAccountID, timeFilter, accessToken)
+	url := fmt.Sprintf("https://graph.facebook.com/v19.0/act_%s/insights?%s", adAccountID, params.Encode())
 
 	pageCount := 1
 
