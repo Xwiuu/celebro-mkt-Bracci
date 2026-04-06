@@ -4,7 +4,7 @@ import VueApexCharts from "vue3-apexcharts";
 import CountUp from 'vue-countup-v3'; // 📦 Novo: Contadores animados
 import { startOfMonth, subDays, format } from 'date-fns'; // 📦 Novo: Cálculos de data
 
-// import api from "../services/api";
+import api from "../services/api";
 
 const startDate = ref("2026-03-01");
 const endDate = ref("2026-03-31");
@@ -64,43 +64,41 @@ const chartSeries = ref([]);
 
 const fetchComparative = async () => {
   loading.value = true;
-  report.value = null; 
-  
+  report.value = null;
+
   try {
-    // Simulando delay da API
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    // 🔥 MOCK ROBUSTO MANTIDO
-    const data = {
-      period_current: { start: startDate.value, end: endDate.value },
-      period_previous: { start: "2026-02-01", end: "2026-02-28" },
+    // 🟢 CHAMADA REAL PARA O BACKEND
+    const response = await api.get("/analytics/comparative", {
+      params: {
+        start_date: startDate.value,
+        end_date: endDate.value
+      }
+    });
+
+    const backendData = response.data;
+
+    report.value = {
+      ...backendData,
       stats: {
-        "Captado Real": { current: 358913.11, delta: 3598.36, prev: 29967.84 },
-        "Total Gasto": { current: 162985.56, delta: -24.01, prev: 103859.69 },
-        "ROAS Global": { current: 2.20, delta: 4741.38, prev: 0.29 },
-        "Volume Cliques": { current: 750504, delta: -61.98, prev: 656558 }
-      },
-      platforms: [
-        { name: "Meta Ads", roas: 16.5, fat: 850000.50, inv: 51515.15, share: 76.7 },
-        { name: "Google Ads", roas: 9.4, fat: 258319.22, inv: 27407.28, share: 23.3 }
-      ],
-      chart_data: {
-        categories: ["01/03", "05/03", "10/03", "15/03", "20/03", "25/03", "31/03"],
-        current: [15000, 45000, 120000, 280000, 310000, 330000, 358913],
-        previous: [2000, 4500, 8000, 15000, 19000, 24000, 29967]
+        "Captado Real": backendData.stats.revenue,
+        "Total Gasto": backendData.stats.spend,
+        "ROAS Global": backendData.stats.roas,
+        "Volume Cliques": backendData.stats.clicks
       }
     };
 
-    report.value = data;
-    
-    chartOptions.value = { ...chartOptions.value, xaxis: { ...chartOptions.value.xaxis, categories: data.chart_data.categories } };
+    chartOptions.value = {
+      ...chartOptions.value,
+      xaxis: { ...chartOptions.value.xaxis, categories: backendData.chart_data.labels }
+    };
+
     chartSeries.value = [
-      { name: 'Período Atual', data: data.chart_data.current },
-      { name: 'Período Anterior', data: data.chart_data.previous }
+      { name: 'Período Atual', data: backendData.chart_data.current },
+      { name: 'Período Anterior', data: backendData.chart_data.previous }
     ];
 
   } catch (e) {
-    console.error("Erro na análise delta:", e);
+    console.error("Erro na análise real:", e);
   } finally {
     loading.value = false;
   }

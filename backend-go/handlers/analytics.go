@@ -3,6 +3,7 @@ package handlers
 import (
 	"backend-go/database"
 	"github.com/gofiber/fiber/v2"
+	"time"
 )
 
 // Estrutura do JSON que o Vue.js vai receber
@@ -25,8 +26,13 @@ type Aggregates struct {
 }
 
 func GetMarketingPerformance(c *fiber.Ctx) error {
-	startDate := c.Query("start_date", "2026-03-01")
-	endDate := c.Query("end_date", "2026-03-31")
+	// 🟢 Mudança: Pegar datas dinâmicas. Se o front não mandar, ele calcula os últimos 30 dias.
+	hoje := time.Now()
+	trintaDiasAtras := hoje.AddDate(0, 0, -30).Format("2006-01-02")
+	hojeStr := hoje.Format("2006-01-02")
+
+	startDate := c.Query("start_date", trintaDiasAtras)
+	endDate := c.Query("end_date", hojeStr)
 
 	type CampaignRow struct {
 		Name     string  `json:"name"`
