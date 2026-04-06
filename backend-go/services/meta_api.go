@@ -39,15 +39,16 @@ func SyncMetaDaily() error {
 }
 
 func SyncMetaHistory() error {
-	// 1. Pega a data de hoje dinamicamente
+	// 1. Pega a data de hoje dinamicamente (2026)
 	hoje := time.Now().Format("2006-01-02")
 
-	// 2. Configura o período: De 01/01/2024 até Hoje
-	timeRange := fmt.Sprintf("%%7B%%22since%%22:%%222024-01-01%%22,%%22until%%22:%%22%s%%22%%7D", hoje)
+	// 2. Cria o JSON do time_range usando crases (backticks) 
+	// Isso evita erros de aspas e garante que o JSON chegue perfeito na Meta
+	timeRangeJSON := fmt.Sprintf(`{"since":"2024-01-01","until":"%s"}`, hoje)
 
 	fmt.Printf("⏳ Iniciando busca histórica: de 2024-01-01 até %s\n", hoje)
 	
-	return fetchAndSaveMeta("", timeRange)
+	return fetchAndSaveMeta("", timeRangeJSON)
 }
 func fetchAndSaveMeta(timePreset string, timeRange string) error {
 	accessToken := os.Getenv("META_ACCESS_TOKEN")
@@ -65,9 +66,9 @@ func fetchAndSaveMeta(timePreset string, timeRange string) error {
 	params.Add("access_token", accessToken)
 
 	if timeRange != "" {
-		params.Add("time_range", timeRange)
+		params.Set("time_range", timeRange)
 	} else {
-		params.Add("time_preset", timePreset)
+		params.Set("time_preset", timePreset)
 	}
 
 	// Montando a URL blindada
