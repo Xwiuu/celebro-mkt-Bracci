@@ -25,7 +25,12 @@ func main() {
 	// 2. Conexão e Migração do Banco de Dados
 	database.ConnectDB()
 	fmt.Println("⚙️ Sincronizando models com o Postgres...")
-	err = database.DB.AutoMigrate(&models.CampaignInsight{})
+
+	// ADICIONE O MODELO DO GOOGLE AQUI DENTRO
+	err = database.DB.AutoMigrate(
+		&models.CampaignInsight{},
+		&models.GoogleCampaignInsight{}, // Certifique-se que esse nome existe no seu models/
+	)
 	if err != nil {
 		log.Fatal("❌ Erro na migração: ", err)
 	}
