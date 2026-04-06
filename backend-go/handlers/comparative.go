@@ -3,13 +3,11 @@ package handlers
 import (
     "backend-go/database"
     "math"
-    "fmt"
     "time"
     "github.com/gofiber/fiber/v2"
 )
 
 func GetComparativeAnalysis(c *fiber.Ctx) error {
-    // 1. Captura de Datas (Verifique se o front envia exatamente 'start_date' e 'end_date')
     startDateStr := c.Query("start_date")
     endDateStr := c.Query("end_date")
     layout := "2006-01-02"
@@ -24,7 +22,6 @@ func GetComparativeAnalysis(c *fiber.Ctx) error {
         return c.Status(400).JSON(fiber.Map{"error": "Formato de data inválido. Use AAAA-MM-DD"})
     }
 
-    // Cálculo dos intervalos
     daysDiff := int(endDate.Sub(startDate).Hours()/24) + 1
     prevEndDate := startDate.AddDate(0, 0, -1)
     prevStartDate := prevEndDate.AddDate(0, 0, -(daysDiff - 1))
@@ -39,17 +36,14 @@ func GetComparativeAnalysis(c *fiber.Ctx) error {
         var meta, google MetricRow
         sStr, eStr := start.Format(layout), end.Format(layout)
 
-        // Busca Meta
         database.DB.Table("fb_campaign_insights").
             Select("COALESCE(SUM(spend), 0), COALESCE(SUM(revenue), 0), COALESCE(SUM(clicks), 0)").
             Where("data BETWEEN ? AND ?", sStr, eStr).Row().Scan(&meta.Spend, &meta.Revenue, &meta.Clicks)
         
-        // Busca Google
         database.DB.Table("google_campaign_insights").
             Select("COALESCE(SUM(spend), 0), COALESCE(SUM(revenue), 0), COALESCE(SUM(clicks), 0)").
             Where("data BETWEEN ? AND ?", sStr, eStr).Row().Scan(&google.Spend, &google.Revenue, &google.Clicks)
 
-        // Busca Série do Gráfico
         var series []float64
         for i := 0; i < daysDiff; i++ {
             day := start.AddDate(0, 0, i).Format(layout)
@@ -76,7 +70,6 @@ func GetComparativeAnalysis(c *fiber.Ctx) error {
         return math.Round((rev/spend)*100) / 100
     }
 
-    // RESPOSTA PADRONIZADA (Mesmas chaves do analytics.go para o front não bugar)
     return c.JSON(fiber.Map{
         "status": "sucesso",
         "period_current":  fiber.Map{"start": startDateStr, "end": endDateStr},
@@ -92,9 +85,18 @@ func GetComparativeAnalysis(c *fiber.Ctx) error {
             {"name": "Google Ads", "revenue": currGoogle.Revenue, "roas": calcROAS(currGoogle.Revenue, currGoogle.Spend)},
         },
         "chart_data": fiber.Map{
-            "labels":   generateLabels(daysDiff),
+            "labels":   generateLabels(daysDiff), // 🟢 AGORA ELA EXISTE
             "current":  currSeries,
             "previous": prevSeries,
         },
     })
+}
+
+// 🟢 FUNÇÃO QUE FALTAVA:
+func generateLabels(n int) []string {
+    labels := make([]string, n)
+    for i := 0; i < n; i++ {
+        labels[i] = "Dia " + time.Now().AddDate(0, 0, i-n+1).Format("02/01")
+    }
+    return labels
 }
